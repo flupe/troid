@@ -4,7 +4,7 @@
 // - add resize event
 // - add menu
 // - better brush engine
-// - better line smoothing
+// - better line smoothing, uniform bezier sampling etc
 
 const on  = (t, es, fn) => {
   if (Array.isArray(es)) {
@@ -45,37 +45,77 @@ drawing.ctx.globalCompositeOperation = "multiply"
 
 const guizmos = newLayer()
 
-let bsize = 10
+let bsize = 7 
 let DRAWING = false
+let HOVER   = false
+let GUIDED  = false
+let ANGLE   = 0
 
 // last 2 known positions (w/ 0 being the most recent)
 let lasts = [{x:0, y:0, s: 0}, {x:0, y:0, s: 0}]
+let mouse = lasts[0]
 
+on(screen.dom, "pointerover", e => { HOVER = true })
 on(screen.dom, "pointerdown", async e => {
   DRAWING = true
 
+  GUIDED = e.altKey
+
   let size = bsize * scale * e.pressure
-  let x = e.clientX / scale
-  let y = e.clientY / scale
+  let x = e.clientX * scale
+  let y = e.clientY * scale
 
   lasts[0].x = lasts[1].x = x
   lasts[0].y = lasts[1].y = y
   lasts[0].s = lasts[1].s = size
+
+  // for now, let's only care about the front vanishing point
+  let dx = x - width / 2
+  let dy = height / 2 - y
+  ANGLE = Math.atan2(dy, dx)
 })
 
 on(screen.dom, "pointermove", async e => {
-  if (!DRAWING) return
+  HOVER = true
 
-  moveBrush(e)
+  if (DRAWING) moveBrush(e)
+  else {
+    mouse.x = e.clientX * scale
+    mouse.y = e.clientY * scale
+  }
+
+  drawGuizmos()
   draw()
 })
 
-on(window, ["mouseup", "blur"], async e => { DRAWING = false })
+on(window, ["pointerup", "blur"], async e => { DRAWING = false })
+on(window, "blur", async e => { HOVER = false })
 
 function moveBrush(e) {
   let s = bsize * scale * Math.sqrt(e.pressure)
-  let x = e.clientX / scale
-  let y = e.clientY / scale
+
+  let x, y
+
+  if (GUIDED) {
+    // sticking mouse to line going to the vp
+    let mx = e.clientX * scale
+    let my = e.clientY * scale
+
+    let dx = mx - width / 2
+    let dy = height / 2 - my
+
+    let ca = Math.cos(ANGLE)
+    let sa = Math.sin(ANGLE)
+
+    let p = ca * dx + sa * dy
+
+    x = width  / 2  + ca * p
+    y = height / 2  - sa * p
+  }
+  else {
+    x = e.clientX * scale
+    y = e.clientY * scale
+  }
 
   // control point as the continuation of the two previous points
   let ctrlx = lasts[0].x + .5 * (lasts[0].x - lasts[1].x)
@@ -87,8 +127,10 @@ function moveBrush(e) {
   const ctx = drawing.ctx
   ctx.globalAlpha = e.pressure
 
-  for (let i = 0; i <= 10; i++) {
-    let r = i / 10;
+  let steps = Math.max(10, Math.sqrt(Math.pow(x - lasts[0].x, 2) +  Math.pow(y - lasts[0].y, 2)) / 2)
+
+  for (let i = 0; i <= steps; i++) {
+    let r = i / steps;
 
     let xx = bez3(r, lasts[0].x, ctrlx, x)
     let yy = bez3(r, lasts[0].y, ctrly, y)
@@ -104,6 +146,63 @@ function moveBrush(e) {
   l.y = y
   l.s = s
   lasts[0] = l
+}
+
+function drawGuizmos() {
+  const ctx = guizmos.ctx
+  ctx.clearRect(0, 0, width, height)
+  ctx.save()
+
+  ctx.translate(width / 2, height / 2)
+  ctx.scale(1, -1)
+
+  ctx.strokeStyle = "#f0f"
+  ctx.lineWidth = 2 * scale
+
+  let dist = Math.min(2 * height / 5, 2 * width / 5)
+
+  // vanishing points
+
+  ctx.beginPath()
+  ctx.arc(    0,     0, 5, 0, 2 * Math.PI)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.arc(    0,  dist, 5, 0, 2 * Math.PI)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.arc(    0, -dist, 5, 0, 2 * Math.PI)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.arc( dist,     0, 5, 0, 2 * Math.PI)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.arc(-dist,     0, 5, 0, 2 * Math.PI)
+  ctx.stroke()
+  ctx.lineWidth = scale
+  ctx.beginPath()
+  ctx.arc(0, 0, dist, 0, 2 * Math.PI)
+  ctx.stroke()
+
+  let dx = mouse.x - width / 2
+  let dy = height / 2 - mouse.y
+
+  // perspective lines
+  ctx.strokeStyle = '#0ff'
+
+  if (HOVER) {
+    ctx.beginPath()
+    let angle = DRAWING ? ANGLE : Math.atan2(dy, dx)
+    let ca = Math.cos(angle)
+    let sa = Math.sin(angle)
+
+    let p = dx * ca + dy * sa
+
+    ctx.moveTo(ca * Math.max(20, p - 50), sa * Math.max(20, p - 50))
+    ctx.lineTo(ca * Math.max(20, p + 50), sa * Math.max(20, p + 50))
+    ctx.stroke()
+  }
+
+  ctx.restore()
 }
 
 // update the entire display
@@ -128,3 +227,6 @@ grad.addColorStop(1, "transparent")
 
 bctx.fillStyle = grad
 bctx.fillRect(0, 0, bsize, bsize)
+
+drawGuizmos()
+draw()
