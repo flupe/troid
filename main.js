@@ -56,6 +56,7 @@ const BRUSH_SIZE = 7  // TODO: make it configurable
 let DRAWING = false
 let HOVER   = false
 let GUIDED  = false
+let GUIDE   = null
 let ANGLE   = 0
 
 let mouse = {
@@ -64,6 +65,8 @@ let mouse = {
   dx: 0, // dx, dy : viewport-local scale-adjusted coords
   dy: 0,
 }
+
+const gizmos = []
 
 // -----------------------------------------------------------------------------
 // event handlers
@@ -81,12 +84,13 @@ on(viewport.dom, "pointerover", e => { HOVER = true })
 on(viewport.dom, "pointerdown", async e => {
   DRAWING = true
   GUIDED = e.altKey
+  GUIDE = null
 
   mouseCoords(e)
   brushStart(e)
 
   // getting gizmo angle
-  if (GUIDED) ANGLE = atan2(mouse.dy, mouse.dx)
+  // if (GUIDED) ANGLE = atan2(mouse.dy, mouse.dx)
 })
 
 on(viewport.dom, "pointermove", async e => {
@@ -147,20 +151,26 @@ function moveBrush(e) {
 
   let s = BRUSH_SIZE * SCALE * sqrt(e.pressure)
 
-  let x, y
+  // we haven't found a guide yet
+  if (GUIDED && GUIDE === null) {
+    let ddx = mouse.dx - lasts[0].x
+    let ddy = mouse.dy - lasts[0].y
 
-  // TODO: move this to gizmo logic
-  if (GUIDED) {
-    let ca = cos(ANGLE)
-    let sa = sin(ANGLE)
-    let p = ca * mouse.dx + sa * mouse.dy
-    x = ca * p
-    y = sa * p
+    let score = 0
+    gizmos.forEach(gizmo => {
+      let s = gizmo.score(ddx, ddy)
+      if (s > score) {
+        score = s
+        GUIDE = gizmo
+      }
+    })
   }
-  else {
-    x = mouse.dx
-    y = mouse.dy
-  }
+
+  if (GUIDED && GUIDE) GUIDE.snap()
+
+  let x = mouse.dx
+  let y = mouse.dy
+  
 
   // control point as the continuation of the two previous points
   let ctrlx = lasts[0].x + .5 * (lasts[0].x - lasts[1].x)
@@ -202,8 +212,7 @@ function drawGizmos() {
   ctx.strokeStyle = "#f0f"
   ctx.lineWidth = 2 * SCALE
 
-
-  // vanishing points
+  /*
   ctx.beginPath()
   ctx.arc(    0,     0, 5, 0, 2 * Math.PI)
   ctx.stroke()
@@ -223,6 +232,7 @@ function drawGizmos() {
   ctx.beginPath()
   ctx.arc(0, 0, GIZMO_SIZE, 0, 2 * Math.PI)
   ctx.stroke()
+  */
 
   let dx = mouse.x - width / 2
   let dy = height / 2 - mouse.y
@@ -230,18 +240,6 @@ function drawGizmos() {
   // perspective lines
   ctx.strokeStyle = '#0ff'
 
-  if (HOVER) {
-    ctx.beginPath()
-    let angle = DRAWING && GUIDED ? ANGLE : Math.atan2(dy, dx)
-    let ca = Math.cos(angle)
-    let sa = Math.sin(angle)
-
-    let p = dx * ca + dy * sa
-
-    ctx.moveTo(ca * Math.max(20, p - 50), sa * Math.max(20, p - 50))
-    ctx.lineTo(ca * Math.max(20, p + 50), sa * Math.max(20, p + 50))
-    ctx.stroke()
-  }
 
 }
 
@@ -258,9 +256,83 @@ function draw() {
   ctx.fillRect(-canvas.width / 2, -canvas.height / 2, canvas.width, canvas.height)
   ctx.drawImage(canvas.dom, -canvas.width / 2, -canvas.height / 2)
   ctx.scale(1, -1)
-  drawGizmos()
+
+  // drawGizmos()
+  gizmos.forEach(gizmo => gizmo.draw(ctx))
 
   ctx.restore()
 }
+
+class Gizmo {
+  constructor() {}
+  update() {}
+  draw() {}
+  correct() {}
+}
+
+class PointGizmo extends Gizmo {
+  constructor(x, y, colour = '#f0f') {
+    super()
+    this.x = x
+    this.y = y
+    this.angle = 0
+    this.colour = colour
+  }
+
+  snap() {
+    let dx = mouse.dx - this.x
+    let dy = mouse.dy - this.y
+
+    let ca = cos(this.angle)
+    let sa = sin(this.angle)
+    let p  = dx * ca + dy * sa
+
+    mouse.dx = this.x + p * ca
+    mouse.dy = this.y + p * sa
+  }
+
+  // compute closeness score to guide
+  score(ddx, ddy) {
+    if (ddx == 0 && ddy == 0) return 0
+
+    // [ddx ddy] is the displacement vector of the first stroke mvmnt
+    let dx = mouse.dx - this.x
+    let dy = mouse.dy - this.y
+    let l1 = dx * dx + dy * dy
+    let l2 = ddx * ddx + ddy * ddy
+
+    this.angle = atan2(dy, dx)
+    return Math.abs(dx * ddx + dy * ddy) / sqrt(l1 * l2)
+  }
+
+  draw(ctx) {
+    ctx.strokeStyle = this.colour
+    ctx.lineWidth = SCALE
+
+    // draw vanishing point
+    ctx.beginPath()
+    ctx.arc(this.x, this.y, 5, 0, 2 * PI)
+    ctx.stroke()
+
+    // draw cursor snap guide
+    let dx = mouse.dx - this.x
+    let dy = mouse.dy - this.y
+
+    ctx.beginPath()
+    let angle = atan2(dy, dx)
+
+    let ca = cos(angle)
+    let sa = sin(angle)
+    let p  = dx * ca + dy * sa
+
+    ctx.moveTo(this.x + ca * max(20, p - 50), this.y + sa * max(20, p - 50))
+    ctx.lineTo(this.x + ca * max(20, p + 50), this.y + sa * max(20, p + 50))
+    ctx.stroke()
+  }
+}
+
+gizmos.push(new PointGizmo(0, -height / 3))
+gizmos.push(new PointGizmo(- height / 3, height / 4, '#ff0'))
+gizmos.push(new PointGizmo(  height / 3, height / 4, '#0ff'))
 
 draw()
