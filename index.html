@@ -13,13 +13,45 @@ body {
   font-family: monospace;
 }
 
+body > nav {
+  position: absolute;
+  z-index: 100;
+  top: 1em;
+  left: 1em;
+  background: rgba(255, 255, 255, .3);
+  backdrop-filter: blur(3px);
+  padding: .6em;
+  border-radius: .5em;
+}
+
+body > nav button {
+  outline: 0;
+  border: 0;
+  background: transparent;
+  display: inline-block;
+  padding: .2em;
+  cursor: pointer;
+  font-size: 1.2em;
+  border-radius: .2em;
+}
+
+body > nav button:hover {
+  background: #ddd;
+}
+
 body > canvas {
   display: block;
+  z-index: 0;
+  position: absolute;
+  top: 0;
   width: 100vw;
   height: 100vh;
 }
     </style>
   </head>
   <body>
+    <nav>
+      <button id="saveBtn" type="button" title="Save canvas">💾</button>
+    </nav>
   </body>
 </html>

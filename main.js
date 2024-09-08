@@ -111,6 +111,24 @@ on(window, "resize", e => {
   draw()
 })
 
+on(saveBtn, "click", async e => {
+  let blob = await new Promise(r => canvas.dom.toBlob(r))
+
+  if ("showSaveFilePicker" in window) {
+    let now = new Date().toISOString()
+    let handle = await window.showSaveFilePicker({
+      startIn: "pictures",
+      suggestedName: `troid-${now}.png`,
+      types: [{ description: "Image file", accept: { "image/png": [".png"] } }],
+    })
+    let stream = await handle.createWritable()
+    await stream.write(blob)
+    await stream.close()
+  }
+
+  else window.location = URL.createObjectURL(blob)
+})
+
 // -----------------------------------------------------------------------------
 // brush "engine"
 // --------------
